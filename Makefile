@@ -1,4 +1,17 @@
+CC = gcc
+CFLAGS = -Wall -lm
 SRC = $(wildcard src/*.c)
-OBJ = $(SRC:.c=.o)
-TARGET = synth 
+TARGET = synth
 
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(CC) -o $(TARGET) $(SRC) $(CFLAGS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -f $(TARGET) output.wav
+
+.PHONY: all run clean
