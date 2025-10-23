@@ -3,6 +3,8 @@
 #include "osc.h"
 #include "wav.h"
 
+void play();
+
 void select_wave(int *wave) {
   printf("select a wave. 0 for sine, 1 for saw and 2 for square\n");
   scanf("%d", wave);
@@ -28,6 +30,18 @@ void select_note(char *note_select) {
 }
 
 int main() {
+  int mode;
+  printf("select mode:\n");
+  printf("1. live play\n");
+  printf("2. generate wav samples\n");
+  printf("enter choice: ");
+  scanf("%d", &mode);
+  
+  if (mode == 1) {
+    play();
+    return 0;
+  }
+  
   Oscillator osc;
   // int freq = 440;
   char note_select = '0';

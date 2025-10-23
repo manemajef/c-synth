@@ -1,0 +1,137 @@
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
+#include "osc.h"
+#include <stdio.h>
+#include <math.h>
+#include <termios.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
+#define RATE 44100
+#define FREQ 440.0
+#define BASE 440.0
+
+typedef struct {
+  float phase;
+  float phase_inc;
+} TestOsc;
+
+typedef struct {
+  TestOsc osc;
+  bool is_active;
+} SynthState;
+
+void audio_callback(ma_device *pDevice, void *pOutput, const void *pInput, ma_uint32 framecount);
+
+void enable_raw_mode() {
+  struct termios term;
+  tcgetattr(STDIN_FILENO, &term);
+  term.c_lflag &= ~(ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &term);
+}
+
+void enable_none_blocking() {
+  int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+  fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+}
+
+char try_get_key() {
+  char c;
+  if (read(STDIN_FILENO, &c, 1) == 1) {
+    return c;
+  }
+  return 0;
+}
+
+void disable_raw_mode() {
+  struct termios term;
+  tcgetattr(STDIN_FILENO, &term);
+  term.c_lflag |= (ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &term);
+}
+
+void audio_callback(ma_device *pDevice, void *pOutput, const void *pInput, ma_uint32 framecount) {
+  float *out = (float*)pOutput;
+  SynthState *synth = (SynthState*)pDevice->pUserData;
+
+  (void)pInput;
+
+  for (int i = 0; i < framecount; i++) {
+    if (synth->is_active) {
+      out[i] = (float)(sin(synth->osc.phase * 2.0 * M_PI) * 0.3);
+      synth->osc.phase += synth->osc.phase_inc;
+      if (synth->osc.phase >= 1.0) {
+        synth->osc.phase -= 1.0;
+      }
+    } else {
+      out[i] = 0.0;
+    }
+  }
+}
+
+void play() {
+  enable_raw_mode();
+  enable_none_blocking();
+  atexit(disable_raw_mode);
+
+  printf("live synth ready!\n");
+  printf("commands:\n");
+  printf("  a-g: play note\n");
+  printf("  space: stop note\n");
+  printf("  q: quit\n\n");
+
+  SynthState synth = {0};
+  synth.osc.phase = 0.0;
+  synth.osc.phase_inc = 440.0 / RATE;
+  synth.is_active = false;
+
+  ma_device_config config = ma_device_config_init(ma_device_type_playback);
+  config.playback.format = ma_format_f32;
+  config.playback.channels = 1;
+  config.sampleRate = RATE;
+  config.dataCallback = audio_callback;
+  config.pUserData = &synth;
+
+  ma_device device;
+  if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
+    printf("Failed to initialize device\n");
+    return;
+  }
+  if (ma_device_start(&device) != MA_SUCCESS) {
+    printf("Failed to start device\n");
+    ma_device_uninit(&device);
+    return;
+  }
+
+  bool running = true;
+  char last_key = 0;
+  while (running) {
+    char key = try_get_key();
+
+    if (key != 0) {  // A key was pressed
+      if (key == 'q') {
+        running = false;
+      }
+      else if (key == ' ') {
+        synth.is_active = false;
+      }
+      else if (key >= 'a' && key <= 'g') {
+        if (key != last_key) {
+          float freq = note_to_freq(key);
+          synth.osc.phase_inc = freq / RATE;
+          last_key = key;
+          synth.osc.phase = 0.0;
+        }
+        synth.is_active = true;
+      }
+    }
+
+    usleep(10000);  // Sleep 10ms
+  }
+
+  ma_device_uninit(&device);
+  printf("\nbye!\n");
+  return;
+}
